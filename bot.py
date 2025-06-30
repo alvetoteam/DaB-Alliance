@@ -36,6 +36,23 @@ async def on_message(message):
         return
 
     if message.content.lower() == "dab":
+        await message.channel.send("📥 Please upload an image now for analysis.")
+
+    # If the user uploads an image
+    elif message.attachments:
+        await message.channel.send("✅ Image received... Analyzing now 🔍")
+
+        # Download the image
+        attachment = message.attachments[0]
+        file_path = f"images/{attachment.filename}"
+        await attachment.save(file_path)
+
+        # Run OCR or analysis function
+        extracted_data = extract_data_from_image(file_path)
+
+        # Send the results
+        await message.channel.send(f"📊 Results:\n{extracted_data}")
+    if message.content.lower() == "dab":
         await message.channel.send("Attach the Pics ..KSA 🔍")
 
     if message.content.startswith('dab') and message.attachments:
