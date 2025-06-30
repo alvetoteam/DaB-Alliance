@@ -4,7 +4,7 @@ from PIL import Image
 import io
 import os
 import json
-from datetime import datetime
+import time
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DATA_FILE = 'data.json'
@@ -13,69 +13,17 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# Load previous data
-def load_player_data():
+def load_previous_players():
     try:
         with open(DATA_FILE, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+            return set(data.get('players', []))
     except FileNotFoundError:
-        return {}
+        return set()
 
-# Save data
-def save_player_data(data):
+def save_players(players):
     with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
-
-# Extract from image
-def extract_players_from_image(image_bytes):
-    image = Image.open(io.BytesIO(image_bytes))
-    text = pytesseract.image_to_string(image)
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    players = {}
-    for line in lines:
-        words = line.split()
-        if len(words) >= 3:
-            name = words[0].upper()
-            try:
-                power = int(words[1].replace(',', ''))
-                village = int(words[2])
-                players[name] = {'power': power, 'village': village}
-            except:
-                continue
-    return players, lines
-
-# Compare
-def compare_players(old_data, new_data):
-    added = []
-    updated = []
-    unchanged = []
-
-    for name, stats in new_data.items():
-        if name not in old_data:
-            added.append((name, stats))
-        else:
-            old_stats = old_data[name]
-            if stats != old_stats:
-                updated.append((name, old_stats, stats))
-            else:
-                unchanged.append(name)
-
-    result = "📊 Update Results:\n"
-    if added:
-        result += "\n🟢 **New Players:**\n"
-        for name, stats in added:
-            result += f"- {name}: Power {stats['power']}, Village {stats['village']}\n"
-    if updated:
-        result += "\n🟡 **Updated Players:**\n"
-        for name, old, new in updated:
-            result += (
-                f"- {name}: Power {old['power']} → {new['power']}, "
-                f"Village {old['village']} → {new['village']}\n"
-            )
-    if not added and not updated:
-        result += "✅ No changes detected."
-
-    return result
+        json.dump({'players': list(players)}, f)
 
 @client.event
 async def on_ready():
@@ -86,46 +34,57 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    content = message.content.lower()
-
-    if content == "dab":
-        await message.channel.send("📥 Upload an image now for analysis.")
-        await message.channel.send("📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
-
-    elif content == "dab help":
-        await message.channel.send(
-            "**🛠️ Dab Bot Help**\n"
-            "`dab` - Start analysis.\n"
-            "`sdab` - Show stored data.\n"
-            "`xdab` - Shut down bot.\n"
-            "`dab help` - Show this message."
-        )
-        await message.channel.send("📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
-
-    elif content == "sdab":
-        data = load_player_data()
-        if not data:
-            await message.channel.send("📂 No player data available.")
-        else:
-            rows = []
-            for name, stats in data.items():
-                rows.append(f"{name}: Power {stats['power']}, Village {stats['village']}")
-            await message.channel.send("📊 Current Player Data:\n```\n" + "\n".join(rows) + "\n```")
-        await message.channel.send("📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
-
-    elif content == "xdab":
-        await message.channel.send("Shutting down... 🔌")
-        await message.channel.send("📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
-        await client.close()
+    if message.content.lower() == "dab":
+        await message.channel.send("📥 Please upload an image now for analysis.")
 
     elif message.attachments:
-        await message.channel.send("✅ Image received. Analyzing... 🔍")
-        image_bytes = await message.attachments[0].read()
-        new_data, lines = extract_players_from_image(image_bytes)
-        old_data = load_player_data()
-        result = compare_players(old_data, new_data)
-        save_player_data({**old_data, **new_data})
-        await message.channel.send(result)
-        await message.channel.send("📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+        await message.channel.send("✅ Image received... Analyzing now 🔍")
+
+        attachment = message.attachments[0]
+        file_path = f"images/{attachment.filename}"
+        await attachment.save(file_path)
+        print(f"Image saved to {file_path}")
+
+        start_time = time.time()
+
+        image = Image.open(file_path)
+        text = pytesseract.image_to_string(image)
+        print(f"Extracted text:\n{text}")
+
+        cleaned_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        new_players = set()
+        duplicates = []
+
+        previous_players = load_previous_players()
+
+        for line in cleaned_lines:
+            words = line.split()
+            if words:
+                name = words[0].upper()
+                if name in previous_players:
+                    duplicates.append(name)
+                else:
+                    new_players.add(name)
+
+        all_players = previous_players.union(new_players)
+        save_players(all_players)
+
+        end_time = time.time()
+        elapsed = end_time - start_time
+
+        response = "📄 **OCR Result:**\n```\n" + "\n".join(cleaned_lines) + "\n```"
+
+        if duplicates:
+            response += f"\n⚠️ Duplicate players found: {', '.join(duplicates)}"
+
+        await message.channel.send(response)
+
+        if not new_players:
+            await message.channel.send("📊 Update Results:\n✅ No changes detected.")
+        else:
+            await message.channel.send(f"📊 Update Results:\n✅ New players added: {', '.join(new_players)}")
+
+        await message.channel.send(f"⏱️ Analysis took {elapsed:.2f} seconds.")
+        await message.channel.send("\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
 
 client.run(TOKEN)
