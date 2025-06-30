@@ -35,6 +35,9 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    if message.content.lower() == "dab":
+        await message.channel.send("Attach the Pics ..KSA 🔍")
+
     if message.content.startswith('dab') and message.attachments:
         attachment = message.attachments[0]
         img_bytes = await attachment.read()
