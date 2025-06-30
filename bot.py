@@ -13,29 +13,20 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-bot_active = True
+# تأكد من وجود مجلد الصور
+os.makedirs('images', exist_ok=True)
 
-# Load previous players from file
 def load_previous_players():
     try:
         with open(DATA_FILE, 'r') as f:
             data = json.load(f)
-            return set(data.get('players', []))
+            return data.get('players', {})
     except FileNotFoundError:
-        return set()
+        return {}
 
-# Save updated players list to file
 def save_players(players):
     with open(DATA_FILE, 'w') as f:
-        json.dump({'players': list(players)}, f)
-
-# Extract text data from image using OCR
-def extract_data_from_image(file_path):
-    image = Image.open(file_path)
-    text = pytesseract.image_to_string(image)
-    # Clean and split lines
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return lines
+        json.dump({'players': players}, f, indent=2)
 
 @client.event
 async def on_ready():
@@ -43,86 +34,108 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    global bot_active
-
     if message.author.bot:
         return
 
-    msg = message.content.lower()
+    content = message.content.lower()
 
-    if msg == "xdab":
-        if not bot_active:
-            await message.channel.send("🤖 The bot is already inactive.")
-            return
-        bot_active = False
-        await message.channel.send("🛑 Bot is now inactive. Use `dab` to activate it again.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+    if content == "dab":
+        await message.channel.send(
+            "📥 Please upload an image now for analysis.\n"
+            "Commands:\n"
+            "`dab help` - Show help info\n"
+            "`dab data` - Show saved players data\n"
+            "`xdab` - Stop the bot\n"
+        )
+        client.analysis_mode = True
         return
 
-    if msg == "dab":
-        if bot_active:
-            await message.channel.send("🤖 The bot is already active.")
-            return
-        bot_active = True
-        await message.channel.send("✅ Bot is now active again.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+    if content == "dab help":
+        help_msg = (
+            "**DaB Bot Commands:**\n"
+            "`dab` - Start image upload and analysis session\n"
+            "`dab data` - Show saved player data with timestamps\n"
+            "`xdab` - Stop the bot\n\n"
+            "_Note: Powered by KSA – DaB alliance (vlaibee)_ 😏"
+        )
+        await message.channel.send(help_msg)
         return
 
-    if msg == "sdab":
-        status = "active" if bot_active else "inactive"
-        await message.channel.send(f"ℹ️ Bot status: **{status}**.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
-        return
-
-    if msg == "dab data":
-        players = load_previous_players()
-        if not players:
-            await message.channel.send("📂 No player data available.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+    if content == "dab data":
+        data = load_previous_players()
+        if not data:
+            await message.channel.send("📂 No player data available.")
         else:
-            players_list = "\n".join(sorted(players))
-            await message.channel.send(f"📂 Player Data:\n```\n{players_list}\n```\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+            msg = "**Saved Player Data:**\n"
+            for player, info in data.items():
+                msg += f"- **{player}** | Power: {info['power']} | Village Level: {info['village_level']} | Last Seen: {info['timestamp']}\n"
+            await message.channel.send(msg + "\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
         return
 
-    if not bot_active:
+    if content == "xdab":
+        await message.channel.send("🛑 Bot is shutting down... Bye! 👋")
+        await client.close()
         return
 
-    # If message contains attachments (images)
-    if message.attachments:
+    # استقبال الصور فقط اذا دخلنا في وضع التحليل
+    if getattr(client, 'analysis_mode', False) and message.attachments:
         await message.channel.send("✅ Image received... Analyzing now 🔍")
-
-        attachment = message.attachments[0]
-        os.makedirs("images", exist_ok=True)
-        file_path = f"images/{attachment.filename}"
-        await attachment.save(file_path)
 
         start_time = time.time()
 
-        lines = extract_data_from_image(file_path)
+        attachment = message.attachments[0]
+        file_path = f"images/{attachment.filename}"
+        await attachment.save(file_path)
 
-        previous_players = load_previous_players()
-        new_players = set()
+        # قراءة الصورة وتشغيل OCR
+        image = Image.open(file_path)
+        text = pytesseract.image_to_string(image)
+
+        # تنظيف النص
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+        # تحميل بيانات اللاعبين القديمة
+        old_data = load_previous_players()
+        new_data = {}
         duplicates = []
 
-        # Example: assume first word in line is player name in uppercase
         for line in lines:
-            words = line.split()
-            if words:
-                name = words[0].upper()
-                if name in previous_players:
-                    duplicates.append(name)
-                else:
-                    new_players.add(name)
+            # متوقع شكل السطر: PlayerName power village_level
+            # مثال: ALPHA 12345 10
+            parts = line.split()
+            if len(parts) >= 3:
+                player_name = parts[0].upper()
+                power = parts[1]
+                village_level = parts[2]
+                timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
 
-        all_players = previous_players.union(new_players)
-        save_players(all_players)
+                if player_name in old_data:
+                    duplicates.append(player_name)
 
-        elapsed = time.time() - start_time
+                new_data[player_name] = {
+                    "power": power,
+                    "village_level": village_level,
+                    "timestamp": timestamp
+                }
 
-        response = "📄 **OCR Result:**\n```\n" + "\n".join(lines) + "\n```"
+        # دمج البيانات الجديدة مع القديمة مع تحديث معلومات اللاعبين الجدد/المحدثين
+        merged_data = old_data.copy()
+        merged_data.update(new_data)
+
+        save_players(merged_data)
+
+        # بناء رسالة المقارنة - هنا فقط نعطي التنبيه إذا وجدت نفس الأسماء
+        comparison_msg = "📄 **OCR Result:**\n```\n" + "\n".join(lines) + "\n```\n"
 
         if duplicates:
-            response += f"\n⚠️ Duplicate players found: {', '.join(duplicates)}"
+            comparison_msg += f"⚠️ Duplicate players found: {', '.join(duplicates)}\n"
 
-        response += f"\n⏱ Analysis took {elapsed:.2f} seconds."
-        response += "\n\n😏 Don’t forget to thank KSA - DaB alliance (vlaibee)"
+        elapsed = time.time() - start_time
+        comparison_msg += f"⏱️ Analysis completed in {elapsed:.2f} seconds.\n"
+        comparison_msg += "😏 Don't forget to thank KSA - DaB alliance (vlaibee)"
 
-        await message.channel.send(response)
+        await message.channel.send(comparison_msg)
+
+        client.analysis_mode = False
 
 client.run(TOKEN)
