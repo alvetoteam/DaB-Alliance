@@ -1,1 +1,4 @@
-./
+touch images/.gitkeep
+git add images/.gitkeep
+git commit -m "Add images folder with .gitkeep"
+git push origin main
