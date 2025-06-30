@@ -1,4 +1,4 @@
 discord.py
-pillow
-pytesseract
-cryptography
+easyocr
+torch
+numpy
