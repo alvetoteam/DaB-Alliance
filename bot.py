@@ -4,31 +4,49 @@ from PIL import Image
 import io
 import os
 import json
+from cryptography.fernet import Fernet
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DATA_FILE = 'data.json'
+KEY_FILE = 'secret.key'
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# Load previous players from file
-def load_previous_players():
-    try:
-        with open(DATA_FILE, 'r') as f:
-            data = json.load(f)
-            return set(data.get('players', []))
-    except FileNotFoundError:
-        return set()
+def generate_key():
+    if not os.path.exists(KEY_FILE):
+        key = Fernet.generate_key()
+        with open(KEY_FILE, 'wb') as f:
+            f.write(key)
 
-# Save updated players list to file
-def save_players(players):
-    with open(DATA_FILE, 'w') as f:
-        json.dump({'players': list(players)}, f)
+def load_key():
+    with open(KEY_FILE, 'rb') as f:
+        return f.read()
+
+def load_previous_players():
+    if not os.path.exists(DATA_FILE):
+        return {}
+
+    fernet = Fernet(load_key())
+    with open(DATA_FILE, 'rb') as f:
+        encrypted_data = f.read()
+    try:
+        decrypted = fernet.decrypt(encrypted_data)
+        return json.loads(decrypted.decode())
+    except:
+        return {}
+
+def save_players(data):
+    fernet = Fernet(load_key())
+    encrypted = fernet.encrypt(json.dumps(data).encode())
+    with open(DATA_FILE, 'wb') as f:
+        f.write(encrypted)
 
 @client.event
 async def on_ready():
     print(f'✅ Logged in as {client.user}!')
+    await client.change_presence(activity=discord.Game(name="Type 'dab' to start analysis!"))
 
 @client.event
 async def on_message(message):
@@ -37,56 +55,46 @@ async def on_message(message):
 
     if message.content.lower() == "dab":
         await message.channel.send("📥 Please upload an image now for analysis.")
+        return
 
-    # If the user uploads an image
-    elif message.attachments:
+    if message.attachments:
         await message.channel.send("✅ Image received... Analyzing now 🔍")
-
-        # Download the image
-        attachment = message.attachments[0]
-        file_path = f"images/{attachment.filename}"
-        await attachment.save(file_path)
-
-        # Run OCR or analysis function
-        extracted_data = extract_data_from_image(file_path)
-
-        # Send the results
-        await message.channel.send(f"📊 Results:\n{extracted_data}")
-    if message.content.lower() == "dab":
-        await message.channel.send("Attach the Pics ..KSA 🔍")
-
-    if message.content.startswith('dab') and message.attachments:
         attachment = message.attachments[0]
         img_bytes = await attachment.read()
         image = Image.open(io.BytesIO(img_bytes))
         text = pytesseract.image_to_string(image)
 
-        # تنظيف النص
         cleaned_lines = [line.strip() for line in text.splitlines() if line.strip()]
-        new_players = set()
-        duplicates = []
-
-        previous_players = load_previous_players()
+        new_data = {}
+        updates = []
+        previous_data = load_previous_players()
 
         for line in cleaned_lines:
-            words = line.split()
-            if words:
-                name = words[0].upper()
-                if name in previous_players:
-                    duplicates.append(name)
+            parts = line.split()
+            if len(parts) >= 3:
+                name = parts[0].upper()
+                try:
+                    power = int(parts[1].replace(",", ""))
+                    level = int(parts[2])
+                except:
+                    continue
+
+                if name in previous_data:
+                    old = previous_data[name]
+                    diff_power = power - old['power']
+                    diff_level = level - old['level']
+                    updates.append(f"{name}: Power {old['power']} → {power} (Δ {diff_power}), Level {old['level']} → {level} (Δ {diff_level})")
                 else:
-                    new_players.add(name)
+                    updates.append(f"{name}: New player added. Power {power}, Level {level}")
 
-        # تحديث القائمة
-        all_players = previous_players.union(new_players)
-        save_players(all_players)
+                new_data[name] = {"power": power, "level": level}
 
-        # بناء الرد
-        response = "📄 **OCR Result:**\n```\n" + "\n".join(cleaned_lines) + "\n```"
+        previous_data.update(new_data)
+        save_players(previous_data)
 
-        if duplicates:
-            response += f"\n⚠️ Duplicate players found: {', '.join(duplicates)}"
+        reply = "\n".join(updates) if updates else "✅ No changes detected."
+        await message.channel.send(f"📊 Update Results:\n```\n{reply}\n```\n😏 Don’t forget to thank KSA - DaB alliance (vlaibee)")
+        return
 
-        await message.channel.send(response)
-
+generate_key()
 client.run(TOKEN)
