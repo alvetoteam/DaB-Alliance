@@ -2,9 +2,7 @@ import discord
 import easyocr
 import os
 import json
-import io
 from datetime import datetime
-import asyncio
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DATA_FILE = 'data.json'
@@ -97,6 +95,12 @@ async def on_message(message):
         reader = easyocr.Reader(['en'])
         results = reader.readtext(file_path, detail=0)
 
+        # حذف الصورة لتوفير مساحة
+        try:
+            os.remove(file_path)
+        except:
+            pass
+
         players = []
         powers = []
         levels = []
@@ -155,6 +159,9 @@ async def on_message(message):
         await message.channel.send(reply)
         return
 
-    # استقبال صور عادية بدون أمر dab لا يفعل شيئ (يمكن إضافة تنبيه لو تحب)
+    # استقبال صور بدون أمر dab
     if message.attachments:
         await message.channel.send("⚠️ Please use the `dab` command before uploading an image for analysis.")
+
+# شغّل البوت
+client.run(TOKEN)
