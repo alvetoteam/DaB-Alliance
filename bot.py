@@ -15,10 +15,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# تأكد من وجود مجلد الصور
 os.makedirs(IMAGE_FOLDER, exist_ok=True)
 
-# تحميل البيانات السابقة
 def load_data():
     try:
         with open(DATA_FILE, 'r') as f:
@@ -26,12 +24,10 @@ def load_data():
     except FileNotFoundError:
         return {}
 
-# حفظ البيانات
 def save_data(data):
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
-# استخراج البيانات من الصورة
 def extract_data_from_image(image_path):
     image = Image.open(image_path)
     text = pytesseract.image_to_string(image)
@@ -67,7 +63,6 @@ def extract_data_from_image(image_path):
 
     return players
 
-# مقارنة البيانات
 def compare_players(new_players, old_data):
     changes = []
     duplicates = []
@@ -104,7 +99,6 @@ async def on_message(message):
 
     content = message.content.lower()
 
-    # أوامر خاصة
     if content == "dab help":
         await message.channel.send(
             "**🛠 Available Commands:**\n"
@@ -135,7 +129,7 @@ async def on_message(message):
         await message.channel.send("📥 Please upload an image now for analysis.")
         return
 
-    if message.content.startswith("dab") and message.attachments:
+    if message.attachments and message.content.startswith("dab"):
         start_time = time.time()
 
         await message.channel.send("✅ Image received... Analyzing now 🔍")
@@ -145,13 +139,14 @@ async def on_message(message):
         await attachment.save(image_path)
 
         new_players = extract_data_from_image(image_path)
+
+        if not new_players:
+            await message.channel.send("⚠️ No valid player data found in the image. Please make sure it's a clear screenshot with names, power (M), and Lv.")
+            return
+
         old_data = load_data()
         changes, duplicates, updated_data = compare_players(new_players, old_data)
         save_data(updated_data)
-
-        if not new_players:
-            await message.channel.send("⚠️ No valid player data found in the image.")
-            return
 
         if changes:
             table = "**📊 Update Results:**\n```\n"
@@ -164,8 +159,7 @@ async def on_message(message):
         else:
             table = "📊 Update Results:\n```\n✅ No changes detected.\n```"
 
-        end_time = time.time()
-        duration = round(end_time - start_time, 2)
+        duration = round(time.time() - start_time, 2)
         table += f"\n⏱ Analysis completed in {duration} seconds."
         table += "\n\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_"
 
