@@ -13,6 +13,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+bot_active = True
+
+# Load previous players from file
 def load_previous_players():
     try:
         with open(DATA_FILE, 'r') as f:
@@ -21,9 +24,18 @@ def load_previous_players():
     except FileNotFoundError:
         return set()
 
+# Save updated players list to file
 def save_players(players):
     with open(DATA_FILE, 'w') as f:
         json.dump({'players': list(players)}, f)
+
+# Extract text data from image using OCR
+def extract_data_from_image(file_path):
+    image = Image.open(file_path)
+    text = pytesseract.image_to_string(image)
+    # Clean and split lines
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines
 
 @client.event
 async def on_ready():
@@ -31,33 +43,65 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    global bot_active
+
     if message.author.bot:
         return
 
-    if message.content.lower() == "dab":
-        await message.channel.send("📥 Please upload an image now for analysis.")
+    msg = message.content.lower()
 
-    elif message.attachments:
+    if msg == "xdab":
+        if not bot_active:
+            await message.channel.send("🤖 The bot is already inactive.")
+            return
+        bot_active = False
+        await message.channel.send("🛑 Bot is now inactive. Use `dab` to activate it again.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+        return
+
+    if msg == "dab":
+        if bot_active:
+            await message.channel.send("🤖 The bot is already active.")
+            return
+        bot_active = True
+        await message.channel.send("✅ Bot is now active again.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+        return
+
+    if msg == "sdab":
+        status = "active" if bot_active else "inactive"
+        await message.channel.send(f"ℹ️ Bot status: **{status}**.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+        return
+
+    if msg == "dab data":
+        players = load_previous_players()
+        if not players:
+            await message.channel.send("📂 No player data available.\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+        else:
+            players_list = "\n".join(sorted(players))
+            await message.channel.send(f"📂 Player Data:\n```\n{players_list}\n```\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
+        return
+
+    if not bot_active:
+        return
+
+    # If message contains attachments (images)
+    if message.attachments:
         await message.channel.send("✅ Image received... Analyzing now 🔍")
 
         attachment = message.attachments[0]
+        os.makedirs("images", exist_ok=True)
         file_path = f"images/{attachment.filename}"
         await attachment.save(file_path)
-        print(f"Image saved to {file_path}")
 
         start_time = time.time()
 
-        image = Image.open(file_path)
-        text = pytesseract.image_to_string(image)
-        print(f"Extracted text:\n{text}")
+        lines = extract_data_from_image(file_path)
 
-        cleaned_lines = [line.strip() for line in text.splitlines() if line.strip()]
+        previous_players = load_previous_players()
         new_players = set()
         duplicates = []
 
-        previous_players = load_previous_players()
-
-        for line in cleaned_lines:
+        # Example: assume first word in line is player name in uppercase
+        for line in lines:
             words = line.split()
             if words:
                 name = words[0].upper()
@@ -69,22 +113,16 @@ async def on_message(message):
         all_players = previous_players.union(new_players)
         save_players(all_players)
 
-        end_time = time.time()
-        elapsed = end_time - start_time
+        elapsed = time.time() - start_time
 
-        response = "📄 **OCR Result:**\n```\n" + "\n".join(cleaned_lines) + "\n```"
+        response = "📄 **OCR Result:**\n```\n" + "\n".join(lines) + "\n```"
 
         if duplicates:
             response += f"\n⚠️ Duplicate players found: {', '.join(duplicates)}"
 
+        response += f"\n⏱ Analysis took {elapsed:.2f} seconds."
+        response += "\n\n😏 Don’t forget to thank KSA - DaB alliance (vlaibee)"
+
         await message.channel.send(response)
-
-        if not new_players:
-            await message.channel.send("📊 Update Results:\n✅ No changes detected.")
-        else:
-            await message.channel.send(f"📊 Update Results:\n✅ New players added: {', '.join(new_players)}")
-
-        await message.channel.send(f"⏱️ Analysis took {elapsed:.2f} seconds.")
-        await message.channel.send("\n📝 _Note: Powered by KSA – DaB alliance (vlaibee)_")
 
 client.run(TOKEN)
