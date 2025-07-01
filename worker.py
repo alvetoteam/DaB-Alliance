@@ -5,7 +5,7 @@ from datetime import datetime
 
 REPO = "alvetoteam/Dab alliance"
 BRANCH = "main"
-FOLDER = "uploads/images"
+FOLDER = "images"
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
 def list_github_images():
