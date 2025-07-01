@@ -3,9 +3,10 @@ import easyocr
 import os
 import json
 import csv
+import asyncio
 from datetime import datetime
 
-TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')  # set this in Railway env vars
 DATA_FILE = 'data.json'
 IMAGE_FOLDER = 'images'
 
@@ -86,17 +87,32 @@ async def on_message(message):
             filename = os.path.join(IMAGE_FOLDER, image.filename)
             await image.save(filename)
 
-            reader = easyocr.Reader(['en'], gpu=False)
-            print("📷 Running OCR...")
-            results = reader.readtext(filename, detail=0)
-            print("📋 OCR Results:")
-            for r in results:
-                print("👉", r)
-
             try:
-                os.remove(filename)
-            except:
-                pass
+                # Init OCR
+                reader = easyocr.Reader(['en'], gpu=False)
+                print("📷 Running OCR...")
+
+                # Run OCR in a separate thread with timeout
+                results = await asyncio.wait_for(
+                    asyncio.to_thread(reader.readtext, filename, detail=0),
+                    timeout=20
+                )
+                print("✅ OCR complete")
+                print("📋 OCR Results:")
+                for line in results:
+                    print("👉", line)
+
+            except asyncio.TimeoutError:
+                await message.channel.send("⚠️ OCR timed out. Try a smaller or clearer image.")
+                return
+            except Exception as e:
+                await message.channel.send(f"❌ OCR failed: `{str(e)}`")
+                return
+            finally:
+                try:
+                    os.remove(filename)
+                except:
+                    pass
 
             # Filter unwanted lines
             filtered = [
@@ -107,6 +123,10 @@ async def on_message(message):
                 and 'minute' not in line.lower()
                 and 'ago' not in line.lower()
             ]
+
+            if not filtered:
+                await message.channel.send("❌ No readable text found in image.")
+                return
 
             players, powers, levels = [], [], []
 
@@ -156,9 +176,11 @@ async def on_message(message):
                         levels[i] if i < len(levels) else "Unknown"
                     ])
 
+            # Send results
             msg = f"📊 Analysis done. Found {len(players)} players.\n"
             msg += f"📎 Attached CSV file: `{csv_filename}`\n"
             await message.channel.send(msg, file=discord.File(csv_path))
+
         else:
             await message.channel.send("⚠️ Please type `dab` before uploading an image.")
 
