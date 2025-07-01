@@ -34,7 +34,7 @@ async def on_message(message):
         image = message.attachments[0]
         filename = os.path.join("images", image.filename)
         await image.save(filename)
-        upload_to_github(filename, f"upload{os.path.basename(filename)}")
+        upload_to_github(filename, f"uploads{os.path.basename(filename)}")
         await message.channel.send("✅ Image uploaded to GitHub for processing.")
         return
 
