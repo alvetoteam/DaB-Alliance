@@ -157,15 +157,15 @@ async def on_message(message):
             for p in all_results:
                 writer.writerow(p)
 
-        # Build chat table
-        table = "📊 **Analysis Results**\n"
-        table += "`Player | Power (M) | Lv.`\n"
-        table += "```\n"
-        for name, power, level in all_results:
-            table += f"{name[:16]:<16} | {str(power):<6} | Lv.{level}\n"
-        table += "```"
+# Build text table as string (Markdown-friendly)
+table = "📊 **Analysis Results**\n"
+table += "**Player** | **Power (M)** | **Lv.**\n"
+table += "--- | --- | ---\n"
+for name, power, level in all_results:
+    table += f"{name} | {power} | Lv.{level}\n"
 
-        await message.channel.send(table)
+# Send table message
+await message.channel.send(table)
         await message.channel.send(file=discord.File(csv_path))
 
     elif message.attachments:
