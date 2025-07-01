@@ -86,8 +86,13 @@ async def on_message(message):
             filename = os.path.join(IMAGE_FOLDER, image.filename)
             await image.save(filename)
 
-            reader = easyocr.Reader(['en'])
+            # EasyOCR مع تعطيل GPU
+            reader = easyocr.Reader(['en'], gpu=False)
+            print("📷 Running OCR...")
             results = reader.readtext(filename, detail=0)
+            print("📋 OCR Results:")
+            for r in results:
+                print("👉", r)
 
             try:
                 os.remove(filename)
@@ -123,10 +128,9 @@ async def on_message(message):
                 "levels": levels
             }
 
-            # حفظ في JSON
             save_all_data(all_data)
 
-            # حفظ في CSV
+            # حفظ CSV
             csv_filename = f"analysis_{timestamp.replace(':', '-').replace(' ', '_')}.csv"
             csv_path = os.path.join(IMAGE_FOLDER, csv_filename)
             with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -138,18 +142,10 @@ async def on_message(message):
                     level = levels[i] if i < len(levels) else "Unknown"
                     writer.writerow([name, power, level])
 
-            # الرد في الديسكورد
-            msg = f"📊 Done! Found {len(players)} players.\n"
-            msg += f"📝 CSV saved as: `{csv_filename}`\n\n"
-            msg += "Player | Power (M) | Lv\n"
-            msg += "--- | --- | ---\n"
-            for i in range(max(len(players), len(powers), len(levels))):
-                name = players[i] if i < len(players) else "?"
-                power = powers[i] if i < len(powers) else "?"
-                level = levels[i] if i < len(levels) else "?"
-                msg += f"{name} | {power} | Lv.{level}\n"
-
-            await message.channel.send(msg)
+            # إرسال CSV كمرفق
+            msg = f"📊 Analysis done. Found {len(players)} players.\n"
+            msg += f"📎 Attached CSV file: `{csv_filename}`\n"
+            await message.channel.send(msg, file=discord.File(csv_path))
         else:
             await message.channel.send("⚠️ Please type `dab` before uploading an image.")
 
