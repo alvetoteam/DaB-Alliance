@@ -6,7 +6,7 @@ import csv
 import asyncio
 from datetime import datetime
 
-TOKEN = os.getenv('DISCORD_BOT_TOKEN')  # set this in Railway env vars
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DATA_FILE = 'data.json'
 IMAGE_FOLDER = 'images'
 
@@ -45,7 +45,7 @@ async def on_message(message):
     if content == 'dab help':
         await message.channel.send(
             "**KSA DaB OCR Bot Help**\n"
-            "`dab` - Start scan (then upload image)\n"
+            "`dab` - Start scan (then upload image[s])\n"
             "`sdab` - Show all saved data\n"
             "`xdab` - Shutdown bot"
         )
@@ -75,60 +75,38 @@ async def on_message(message):
 
     if content == 'dab':
         pending_users.add(user_id)
-        await message.channel.send("📥 Please upload an image now.")
+        await message.channel.send("📥 Please upload up to 10 images now.")
         return
 
-    if message.attachments:
-        if user_id in pending_users:
-            pending_users.remove(user_id)
-            await message.channel.send("✅ Image received, analyzing...")
+    if message.attachments and user_id in pending_users:
+        pending_users.remove(user_id)
+        await message.channel.send("✅ Images received, analyzing...")
 
-            image = message.attachments[0]
-            filename = os.path.join(IMAGE_FOLDER, image.filename)
-            await image.save(filename)
+        all_results = []
+        reader = easyocr.Reader(['en'], gpu=False)
+
+        for attachment in message.attachments[:10]:
+            filename = os.path.join(IMAGE_FOLDER, attachment.filename)
+            await attachment.save(filename)
 
             try:
-                # Init OCR
-                reader = easyocr.Reader(['en'], gpu=False)
-                print("📷 Running OCR...")
-
-                # Run OCR in a separate thread with timeout
                 results = await asyncio.wait_for(
                     asyncio.to_thread(reader.readtext, filename, detail=0),
                     timeout=20
                 )
-                print("✅ OCR complete")
-                print("📋 OCR Results:")
-                for line in results:
-                    print("👉", line)
-
-            except asyncio.TimeoutError:
-                await message.channel.send("⚠️ OCR timed out. Try a smaller or clearer image.")
-                return
             except Exception as e:
-                await message.channel.send(f"❌ OCR failed: `{str(e)}`")
-                return
+                await message.channel.send(f"⚠️ Error reading image `{attachment.filename}`: {e}")
+                continue
             finally:
                 try:
                     os.remove(filename)
                 except:
                     pass
 
-            # Filter unwanted lines
             filtered = [
                 line.strip() for line in results
-                if line.strip()
-                and 'day' not in line.lower()
-                and 'hour' not in line.lower()
-                and 'minute' not in line.lower()
-                and 'ago' not in line.lower()
+                if line.strip() and all(x not in line.lower() for x in ["day", "hour", "minute", "ago"])
             ]
-
-            if not filtered:
-                await message.channel.send("❌ No readable text found in image.")
-                return
-
-            players, powers, levels = [], [], []
 
             i = 0
             while i < len(filtered):
@@ -148,40 +126,49 @@ async def on_message(message):
                     except:
                         pass
 
-                players.append(name)
-                powers.append(power)
-                levels.append(level)
+                all_results.append((name, power, level))
                 i += 3
 
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            all_data = load_all_data()
-            all_data[timestamp] = {
-                "players": players,
-                "powers": powers,
-                "levels": levels
-            }
+        if not all_results:
+            await message.channel.send("❌ No valid player data found in the images.")
+            return
 
-            save_all_data(all_data)
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        all_data = load_all_data()
 
-            # Save to CSV
-            csv_filename = f"analysis_{timestamp.replace(':', '-').replace(' ', '_')}.csv"
-            csv_path = os.path.join(IMAGE_FOLDER, csv_filename)
-            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['Player', 'Power (M)', 'Village Level'])
-                for i in range(len(players)):
-                    writer.writerow([
-                        players[i],
-                        powers[i] if i < len(powers) else "Unknown",
-                        levels[i] if i < len(levels) else "Unknown"
-                    ])
+        players = [x[0] for x in all_results]
+        powers = [x[1] for x in all_results]
+        levels = [x[2] for x in all_results]
 
-            # Send results
-            msg = f"📊 Analysis done. Found {len(players)} players.\n"
-            msg += f"📎 Attached CSV file: `{csv_filename}`\n"
-            await message.channel.send(msg, file=discord.File(csv_path))
+        all_data[timestamp] = {
+            "players": players,
+            "powers": powers,
+            "levels": levels
+        }
 
-        else:
-            await message.channel.send("⚠️ Please type `dab` before uploading an image.")
+        save_all_data(all_data)
+
+        # Save CSV
+        csv_filename = f"analysis_{timestamp.replace(':', '-').replace(' ', '_')}.csv"
+        csv_path = os.path.join(IMAGE_FOLDER, csv_filename)
+        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['Player', 'Power (M)', 'Village Level'])
+            for p in all_results:
+                writer.writerow(p)
+
+        # Build chat table
+        table = "📊 **Analysis Results**\n"
+        table += "`Player | Power (M) | Lv.`\n"
+        table += "```\n"
+        for name, power, level in all_results:
+            table += f"{name[:16]:<16} | {str(power):<6} | Lv.{level}\n"
+        table += "```"
+
+        await message.channel.send(table)
+        await message.channel.send(file=discord.File(csv_path))
+
+    elif message.attachments:
+        await message.channel.send("⚠️ Please use `dab` first before uploading image(s).")
 
 client.run(TOKEN)
