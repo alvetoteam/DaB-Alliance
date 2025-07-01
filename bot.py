@@ -86,7 +86,6 @@ async def on_message(message):
             filename = os.path.join(IMAGE_FOLDER, image.filename)
             await image.save(filename)
 
-            # EasyOCR مع تعطيل GPU
             reader = easyocr.Reader(['en'], gpu=False)
             print("📷 Running OCR...")
             results = reader.readtext(filename, detail=0)
@@ -99,26 +98,40 @@ async def on_message(message):
             except:
                 pass
 
+            # Filter unwanted lines
+            filtered = [
+                line.strip() for line in results
+                if line.strip()
+                and 'day' not in line.lower()
+                and 'hour' not in line.lower()
+                and 'minute' not in line.lower()
+                and 'ago' not in line.lower()
+            ]
+
             players, powers, levels = [], [], []
 
-            for line in results:
-                line = line.strip()
-                if "M" in line:
+            i = 0
+            while i < len(filtered):
+                name = filtered[i].upper()
+                power = "Unknown"
+                level = "Unknown"
+
+                if i + 1 < len(filtered) and 'M' in filtered[i + 1]:
                     try:
-                        value = float(line.split("M")[0].split()[-1])
-                        powers.append(value)
+                        power = float(filtered[i + 1].split("M")[0].split()[-1])
                     except:
-                        continue
-                elif "Lv." in line:
+                        pass
+
+                if i + 2 < len(filtered) and 'Lv.' in filtered[i + 2]:
                     try:
-                        value = int(line.split("Lv.")[-1].strip().split()[0])
-                        levels.append(value)
+                        level = int(filtered[i + 2].split("Lv.")[-1].strip().split()[0])
                     except:
-                        continue
-                else:
-                    name = line.upper()
-                    if name and name not in players:
-                        players.append(name)
+                        pass
+
+                players.append(name)
+                powers.append(power)
+                levels.append(level)
+                i += 3
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             all_data = load_all_data()
@@ -130,19 +143,19 @@ async def on_message(message):
 
             save_all_data(all_data)
 
-            # حفظ CSV
+            # Save to CSV
             csv_filename = f"analysis_{timestamp.replace(':', '-').replace(' ', '_')}.csv"
             csv_path = os.path.join(IMAGE_FOLDER, csv_filename)
             with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(['Player', 'Power (M)', 'Village Level'])
-                for i in range(max(len(players), len(powers), len(levels))):
-                    name = players[i] if i < len(players) else "Unknown"
-                    power = powers[i] if i < len(powers) else "Unknown"
-                    level = levels[i] if i < len(levels) else "Unknown"
-                    writer.writerow([name, power, level])
+                for i in range(len(players)):
+                    writer.writerow([
+                        players[i],
+                        powers[i] if i < len(powers) else "Unknown",
+                        levels[i] if i < len(levels) else "Unknown"
+                    ])
 
-            # إرسال CSV كمرفق
             msg = f"📊 Analysis done. Found {len(players)} players.\n"
             msg += f"📎 Attached CSV file: `{csv_filename}`\n"
             await message.channel.send(msg, file=discord.File(csv_path))
