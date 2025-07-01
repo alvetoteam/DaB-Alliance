@@ -6,7 +6,7 @@ import csv
 import asyncio
 from datetime import datetime
 
-TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')  # ضع التوكن الخاص بك في متغير بيئة
 DATA_FILE = 'data.json'
 IMAGE_FOLDER = 'images'
 
@@ -44,7 +44,7 @@ async def on_message(message):
 
     if content == 'dab help':
         await message.channel.send(
-            "**KSA DaB OCR Bot Help**\n"
+            "**🧠 KSA DaB OCR Bot Help**\n"
             "`dab` - Start scan (then upload image[s])\n"
             "`sdab` - Show all saved data\n"
             "`xdab` - Shutdown bot"
@@ -59,7 +59,7 @@ async def on_message(message):
     if content == 'sdab':
         data = load_all_data()
         if not data:
-            await message.channel.send("No data found.")
+            await message.channel.send("📂 No data found.")
             return
         reply = "**📂 Saved Player Data:**\n"
         for ts, entry in data.items():
@@ -90,12 +90,9 @@ async def on_message(message):
             await attachment.save(filename)
 
             try:
-                results = await asyncio.wait_for(
-                    asyncio.to_thread(reader.readtext, filename, detail=0),
-                    timeout=20
-                )
+                results = await asyncio.to_thread(reader.readtext, filename, detail=0)
             except Exception as e:
-                await message.channel.send(f"⚠️ Error reading image `{attachment.filename}`: {e}")
+                await message.channel.send(f"⚠️ Error reading `{attachment.filename}`: {e}")
                 continue
             finally:
                 try:
@@ -103,11 +100,13 @@ async def on_message(message):
                 except:
                     pass
 
+            # تنظيف البيانات
             filtered = [
                 line.strip() for line in results
                 if line.strip() and all(x not in line.lower() for x in ["day", "hour", "minute", "ago"])
             ]
 
+            # تجميع الأسماء والقوة والمستوى
             i = 0
             while i < len(filtered):
                 name = filtered[i].upper()
@@ -130,9 +129,10 @@ async def on_message(message):
                 i += 3
 
         if not all_results:
-            await message.channel.send("❌ No valid player data found in the images.")
+            await message.channel.send("❌ No valid player data found.")
             return
 
+        # حفظ البيانات
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         all_data = load_all_data()
 
@@ -148,7 +148,7 @@ async def on_message(message):
 
         save_all_data(all_data)
 
-        # Save CSV
+        # حفظ CSV
         csv_filename = f"analysis_{timestamp.replace(':', '-').replace(' ', '_')}.csv"
         csv_path = os.path.join(IMAGE_FOLDER, csv_filename)
         with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
@@ -157,16 +157,15 @@ async def on_message(message):
             for p in all_results:
                 writer.writerow(p)
 
-# Build text table as string (Markdown-friendly)
-table = "📊 **Analysis Results**\n"
-table += "**Player** | **Power (M)** | **Lv.**\n"
-table += "--- | --- | ---\n"
-for name, power, level in all_results:
-    table += f"{name} | {power} | Lv.{level}\n"
+        # بناء الجدول داخل الديسكورد
+        table = "📊 **Analysis Results**\n"
+        table += "**Player** | **Power (M)** | **Lv.**\n"
+        table += "--- | --- | ---\n"
+        for name, power, level in all_results:
+            table += f"{name} | {power} | Lv.{level}\n"
 
-# Send table message
-await message.channel.send(table)
-        await message.channel.send(file=discord.File(csv_path))
+        await message.channel.send(table)
+        await message.channel.send(f"📎 Attached CSV file: `{csv_filename}`", file=discord.File(csv_path))
 
     elif message.attachments:
         await message.channel.send("⚠️ Please use `dab` first before uploading image(s).")
