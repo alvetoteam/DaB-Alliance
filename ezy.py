@@ -2,13 +2,10 @@
 
 # ezy.py
 
-import os
-import json
-import csv
-import base64
-import requests
-from datetime import datetime
+# ezy.py
+import os, json, csv, base64, requests
 import easyocr
+from datetime import datetime
 
 DATA_FILE = 'data.json'
 IMAGE_FOLDER = 'images'
@@ -37,9 +34,8 @@ def upload_to_github(file_path, github_path):
     with open(file_path, "rb") as f:
         content = base64.b64encode(f.read()).decode()
 
-    message = f"Upload {github_path}"
     data = {
-        "message": message,
+        "message": f"Upload {github_path}",
         "content": content,
         "branch": GITHUB_BRANCH
     }
@@ -50,20 +46,14 @@ def upload_to_github(file_path, github_path):
     }
 
     r = requests.put(url, headers=headers, json=data)
-    print(f"📤 Upload {github_path} status: {r.status_code}")
+    print(f"📤 Upload {github_path}: {r.status_code}")
     return r.status_code in [200, 201]
 
 def analyze_image(filename):
-    print("🔍 Initializing EasyOCR reader...")
     reader = easyocr.Reader(['en'], gpu=False)
-    print("✅ EasyOCR initialized")
     results = reader.readtext(filename, detail=0)
-    print("📋 OCR Results:")
-    for r in results:
-        print("👉", r)
 
     players, powers, levels = [], [], []
-
     for line in results:
         line = line.strip()
         if "M" in line:
@@ -86,14 +76,15 @@ def analyze_image(filename):
     return players, powers, levels, results
 
 def save_csv(players, powers, levels, timestamp):
-    csv_filename = f"analysis_{timestamp.replace(':','-').replace(' ', '_')}.csv"
-    csv_path = os.path.join(IMAGE_FOLDER, csv_filename)
-    with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
+    filename = f"analysis_{timestamp.replace(':','-').replace(' ', '_')}.csv"
+    path = os.path.join(IMAGE_FOLDER, filename)
+    with open(path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
         writer.writerow(['Player', 'Power (M)', 'Village Level'])
         for i in range(max(len(players), len(powers), len(levels))):
-            name = players[i] if i < len(players) else "Unknown"
-            power = powers[i] if i < len(powers) else "Unknown"
-            level = levels[i] if i < len(levels) else "Unknown"
-            writer.writerow([name, power, level])
-    return csv_path, csv_filename
+            writer.writerow([
+                players[i] if i < len(players) else "Unknown",
+                powers[i] if i < len(powers) else "Unknown",
+                levels[i] if i < len(levels) else "Unknown"
+            ])
+    return path, filename
