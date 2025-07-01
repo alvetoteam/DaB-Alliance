@@ -5,9 +5,10 @@ import json
 import csv
 import base64
 import requests
+import asyncio
 from datetime import datetime
 
-# ---- إعداد المتغيرات ----
+# إعداد المتغيرات
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = "alvetoteam/DaB-Alliance"
@@ -23,12 +24,12 @@ client = discord.Client(intents=intents)
 
 pending_users = set()
 
-# ----- تأكد مجلدات الملفات -----
+# إنشاء مجلدات الملفات
 for folder in [IMAGE_FOLDER, MODEL_FOLDER]:
     if not os.path.exists(folder):
         os.makedirs(folder)
 
-# ---- دالة تحميل ملفات نماذج EasyOCR من مستودعهم الرسمي ----
+# دالة لتحميل نماذج EasyOCR من GitHub الرسمي
 def download_easyocr_model(filename):
     url = f"https://github.com/JaidedAI/EasyOCR/raw/master/easyocr/{filename}"
     save_path = os.path.join(MODEL_FOLDER, filename)
@@ -44,7 +45,7 @@ def download_easyocr_model(filename):
     else:
         print(f"{filename} already exists, skipping download.")
 
-# ---- دوال GitHub الرفع مع دعم التحديث ----
+# دوال رفع الملفات إلى GitHub مع دعم التحديث (SHA)
 def get_file_sha(github_path):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{github_path}"
     headers = {
@@ -70,7 +71,7 @@ def upload_to_github(file_path, github_path):
         "branch": GITHUB_BRANCH
     }
     if sha:
-        data["sha"] = sha  # ضروري للتحديث
+        data["sha"] = sha  # مهم للتحديث بدل الإضافة الجديدة
 
     headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -87,7 +88,7 @@ def upload_to_github(file_path, github_path):
         print(f"Response: {response.text}")
         return False
 
-# ---- دوال حفظ وقراءة البيانات المحلية ----
+# دوال تحميل وحفظ البيانات محلياً
 def load_all_data():
     try:
         with open(DATA_FILE, 'r') as f:
@@ -99,14 +100,19 @@ def save_all_data(data):
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
-# ---- أحداث بوت Discord ----
+# دالة OCR تُشغل في Thread منفصل لمنع حظر البوت
+def ocr_process(path):
+    reader = easyocr.Reader(['en'], gpu=False, model_storage_directory=MODEL_FOLDER)
+    return reader.readtext(path, detail=0)
+
+# حدث عند تشغيل البوت
 @client.event
 async def on_ready():
     print(f'✅ Bot is ready as {client.user}')
-    # حمّل نماذج EasyOCR لو غير موجودة
     download_easyocr_model("craft_mlt_25k.pth")
     download_easyocr_model("crnn.pth")
 
+# حدث استقبال رسالة
 @client.event
 async def on_message(message):
     if message.author.bot:
@@ -160,10 +166,9 @@ async def on_message(message):
             filename = os.path.join(IMAGE_FOLDER, image.filename)
             await image.save(filename)
 
+            loop = asyncio.get_running_loop()
             try:
-                # استخدم مجلد النماذج التي تم تحميلها
-                reader = easyocr.Reader(['en'], gpu=False, model_storage_directory=MODEL_FOLDER)
-                results = reader.readtext(filename, detail=0)
+                results = await loop.run_in_executor(None, ocr_process, filename)
             except Exception as e:
                 await message.channel.send(f"❌ OCR failed: {e}")
                 return
@@ -220,7 +225,6 @@ async def on_message(message):
                         players[i]['level']
                     ])
 
-            # رفع الملفات إلى GitHub
             success_image = upload_to_github(filename, f"upload/{os.path.basename(filename)}")
             success_data = upload_to_github(DATA_FILE, "data.json")
             success_csv = upload_to_github(csv_path, csv_filename)
@@ -239,5 +243,5 @@ async def on_message(message):
         else:
             await message.channel.send("⚠️ Type `dab` first before uploading an image.")
 
-# ---- تشغيل البوت ----
+# تشغيل البوت
 client.run(TOKEN)
