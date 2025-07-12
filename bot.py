@@ -24,9 +24,9 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
-pending_users = set()
+pending_images = {}  # user_id => list of image paths
 
-# --- GitHub Upload Utilities ---
+# --- GitHub Upload ---
 def get_file_sha(github_path):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{github_path}"
     headers = {
@@ -79,34 +79,49 @@ async def on_ready():
         print(f"❌ Failed to sync commands: {e}")
 
 @tree.command(name="dab", description="OCR scan command using TrOCR")
-@app_commands.describe(action="Type 'run' to start scanning")
+@app_commands.describe(action="Type 'run' to start scanning multiple images")
 async def dab(interaction: discord.Interaction, action: str):
     if action.lower() == "run":
-        pending_users.add(interaction.user.id)
-        await interaction.response.send_message("📥 Please upload an image now.")
+        pending_images[interaction.user.id] = []
+        await interaction.response.send_message("📥 Upload one or more images.\nWhen you're ready, send `done`.")
 
 @bot.event
 async def on_message(message):
+    await bot.process_commands(message)
+    user_id = message.author.id
+
     if message.author.bot:
         return
 
-    if message.attachments and message.author.id in pending_users:
-        pending_users.remove(message.author.id)
-        await message.channel.send("✅ Image received, analyzing...")
+    # استقبال الصور
+    if message.attachments and user_id in pending_images:
+        await message.channel.send("📸 Image received.")
+        for image in message.attachments:
+            filename = os.path.join(IMAGE_FOLDER, f"{datetime.now().timestamp()}_{image.filename}")
+            await image.save(filename)
+            pending_images[user_id].append(filename)
 
-        image = message.attachments[0]
-        filename = os.path.join(IMAGE_FOLDER, image.filename)
-        await image.save(filename)
-
-        loop = asyncio.get_running_loop()
-        try:
-            text = await loop.run_in_executor(None, trocr_ocr, filename)
-        except Exception as e:
-            await message.channel.send(f"❌ OCR failed: {e}")
+    # تنفيذ التحليل عند كتابة "done"
+    if message.content.lower() == "done" and user_id in pending_images:
+        image_paths = pending_images.pop(user_id)
+        if not image_paths:
+            await message.channel.send("⚠️ No images were uploaded.")
             return
 
-        # معالجة النتائج وتخزينها
-        lines = text.strip().split('\n')
+        await message.channel.send(f"🔍 Analyzing `{len(image_paths)}` image(s)...")
+        loop = asyncio.get_running_loop()
+        all_texts = []
+
+        for path in image_paths:
+            try:
+                text = await loop.run_in_executor(None, trocr_ocr, path)
+                all_texts.append(text)
+            except Exception as e:
+                all_texts.append(f"❌ Error reading {os.path.basename(path)}: {e}")
+
+        # معالجة النصوص المجمعة
+        full_text = "\n".join(all_texts)
+        lines = full_text.strip().split('\n')
         players = []
         temp_power = None
         temp_level = None
@@ -159,13 +174,14 @@ async def on_message(message):
                     players[i]['level']
                 ])
 
-        image_url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/upload/{os.path.basename(filename)}" if upload_to_github(filename, f"upload/{os.path.basename(filename)}") else "Failed"
+        for path in image_paths:
+            upload_to_github(path, f"upload/{os.path.basename(path)}")
         upload_to_github(DATA_FILE, "upload/data.json")
         upload_to_github(csv_path, f"upload/{csv_filename}")
 
         await message.channel.send(
             f"📊 Done! Found `{len(players)}` players.\n"
-            f"📁 Image uploaded to GitHub: {image_url}\n"
+            f"📁 Images uploaded to GitHub.\n"
             f"📎 {csv_filename} attached.",
             file=discord.File(csv_path)
         )
