@@ -189,13 +189,10 @@ async def on_message(message):
         upload_to_github(csv_path, f"upload/{csv_filename}")
 
         await message.channel.send(
-            f"ð Done! Found `{len(players)}` players.
-"
-            f"ð¼ï¸ Image uploaded to GitHub: {image_url}
-"
-            f"ð `{csv_filename}` attached.",
-            file=discord.File(csv_path)
-        )
+    f"Done! Found `{len(players)}` players.\n"
+    f"Image uploaded to GitHub: {image_url}\n"
+    f"{csv_filename} attached.",
+    file=discord.File(csv_path)
 
 # Run the bot
 bot.run(TOKEN)
