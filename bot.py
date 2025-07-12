@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -17,7 +18,7 @@ GITHUB_BRANCH = "main"
 
 DATA_FILE = 'data.json'
 IMAGE_FOLDER = 'images'
-MODEL_FOLDER = 'models'
+MODEL_FOLDER = 'models'  # هنا ملفات craft_mlt_25k.pth و crnn.pth يجب أن تكون موجودة
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -26,25 +27,13 @@ tree = bot.tree
 
 pending_users = set()
 
-# Create folders
+# تأكد أن المجلدات موجودة
 for folder in [IMAGE_FOLDER, MODEL_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
-# EasyOCR model downloader
-def download_easyocr_model(filename):
-    url = f"https://github.com/JaidedAI/EasyOCR/raw/master/easyocr/{filename}"
-    save_path = os.path.join(MODEL_FOLDER, filename)
-    if not os.path.exists(save_path):
-        print(f"Downloading {filename}...")
-        r = requests.get(url)
-        if r.status_code == 200:
-            with open(save_path, "wb") as f:
-                f.write(r.content)
-            print(f"{filename} downloaded.")
-        else:
-            print(f"Failed to download {filename} ({r.status_code})")
+# حذف دالة تحميل الموديلات لأننا سنستخدم الموديلات المحلية
 
-# GitHub Upload helpers
+# --- دوال رفع الملفات على GitHub ---
 def get_file_sha(github_path):
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{github_path}"
     headers = {
@@ -87,31 +76,27 @@ def save_all_data(data):
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
+# هنا نستخدم EasyOCR مع موديلات محلية
 def ocr_process(path):
     reader = easyocr.Reader(['en'], gpu=False, model_storage_directory=MODEL_FOLDER)
     return reader.readtext(path, detail=0)
 
-# Bot ready event
 @bot.event
 async def on_ready():
-    print(f'â Bot is ready as {bot.user}')
-    download_easyocr_model("craft_mlt_25k.pth")
-    download_easyocr_model("crnn.pth")
+    print(f'✅ Bot is ready as {bot.user}')
     try:
         synced = await tree.sync()
-        print(f"ð Synced {len(synced)} slash commands")
+        print(f"🔄 Synced {len(synced)} slash commands")
     except Exception as e:
-        print(f"â Failed to sync commands: {e}")
+        print(f"❌ Failed to sync commands: {e}")
 
-# Slash command: /dab run
 @tree.command(name="dab", description="OCR scan commands")
 @app_commands.describe(action="Select 'run' to start scanning")
 async def dab(interaction: discord.Interaction, action: str):
     if action.lower() == "run":
         pending_users.add(interaction.user.id)
-        await interaction.response.send_message("ð¥ Please upload an image now.")
+        await interaction.response.send_message("📥 Please upload an image now.")
 
-# Event to handle image upload
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -119,7 +104,7 @@ async def on_message(message):
 
     if message.attachments and message.author.id in pending_users:
         pending_users.remove(message.author.id)
-        await message.channel.send("â Image received, analyzing...")
+        await message.channel.send("✅ Image received, analyzing...")
 
         image = message.attachments[0]
         filename = os.path.join(IMAGE_FOLDER, image.filename)
@@ -129,7 +114,7 @@ async def on_message(message):
         try:
             results = await loop.run_in_executor(None, ocr_process, filename)
         except Exception as e:
-            await message.channel.send(f"â OCR failed: {e}")
+            await message.channel.send(f"❌ OCR failed: {e}")
             return
 
         players = []
@@ -189,10 +174,10 @@ async def on_message(message):
         upload_to_github(csv_path, f"upload/{csv_filename}")
 
         await message.channel.send(
-    f"Done! Found `{len(players)}` players.\n"
-    f"Image uploaded to GitHub: {image_url}\n"
-    f"{csv_filename} attached.",
-    file=discord.File(csv_path)
+            f"📊 Done! Found `{len(players)}` players.\n"
+            f"📁 Image uploaded to GitHub: {image_url}\n"
+            f"📎 {csv_filename} attached.",
+            file=discord.File(csv_path)
+        )
 
-# Run the bot
 bot.run(TOKEN)
